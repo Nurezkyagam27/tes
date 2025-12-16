@@ -11,11 +11,10 @@ import streamlit as st
 import tensorflow as tf
 from PIL import Image
 import numpy as np
-# Import fungsi preprocessing spesifik untuk MobileNetV2
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
-
-# --- Konfigurasi Awal (dari kode Anda) ---
-# Daftar label kelas daun (sudah benar)
+import io
+import base64
+# --- Label dan Khasiat ---
 class_names = [
     'Ancak', 'AwarAwar', 'Beringin', 'Cemara', 'CempakaKuning',
     'Ceremai', 'Dapdap', 'Delima', 'Gadung', 'JambuAir',
@@ -82,99 +81,86 @@ khasiat_daun = {
     'Wani': 'Sebagai antioksidan dan meningkatkan daya tahan tubuh.'
 }
 
-# --- Peningkatan Performa dan Akurasi ---
-
-# 1. Gunakan cache untuk memuat model. Model hanya akan di-load sekali.
+# --- Load Model ---
 @st.cache_resource
 def load_model():
-    """Memuat model machine learning dari file .h5"""
-    # Sesuaikan 'mobilenetv2_model.h5' dengan path/nama file model Anda
-    model = tf.keras.models.load_model('mobilenetv2_model.h5')
-    return model
+    return tf.keras.models.load_model('mobilenetv2_model.h5')
 
-# 2. Fungsi untuk preprocessing dan prediksi
+# --- Preprocessing ---
 def preprocess_and_predict(model, image):
-    """
-    Melakukan pra-pemrosesan gambar dan mengembalikan prediksi,
-    nama kelas, dan skor keyakinan.
-    """
-    # Pastikan gambar dalam mode RGB
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
+    image = image.convert('RGB').resize((224, 224))
+    image_array = preprocess_input(np.expand_dims(np.array(image), axis=0))
+    prediction = model.predict(image_array)
+    idx = np.argmax(prediction)
+    return class_names[idx], np.max(prediction) * 100
 
-    # Resize gambar ke ukuran yang diharapkan oleh model
-    image = image.resize((224, 224))
-
-    # Ubah gambar menjadi array numpy
-    image_array = np.array(image)
-
-    # Tambahkan dimensi batch
-    image_array = np.expand_dims(image_array, axis=0)
-
-    # Gunakan preprocess_input yang sesuai untuk MobileNetV2
-    processed_image = preprocess_input(image_array)
-
-    # Lakukan prediksi
-    prediction = model.predict(processed_image)
-
-    # Dapatkan indeks, nama, dan skor keyakinan
-    predicted_class_index = np.argmax(prediction)
-    predicted_class_name = class_names[predicted_class_index]
-    confidence_score = np.max(prediction) * 100
-
-    return predicted_class_name, confidence_score
-
-# Muat model menggunakan fungsi yang sudah di-cache
-model = load_model()
-
-# --- UI Layout (dari kode Anda) ---
+# --- UI Layout ---
 st.set_page_config(page_title="Klasifikasi Daun Herbal", layout="centered")
-
-st.markdown(
-    "<h3 style='text-align: center;'>"
-    "<span style='color:#0abf53;'>CARI</span> TANAMAN HERBAL<br>"
-    "<span style='color:#1abc9c;'>DENGAN</span> SATU KLIK!!"
-    "</h3>", unsafe_allow_html=True)
-
+st.markdown("<h3 style='text-align: center;'><span style='color:#0abf53;'>CARI</span> TANAMAN HERBAL<br><span style='color:#1abc9c;'>DENGAN</span> SATU KLIK!!</h3>", unsafe_allow_html=True)
 st.markdown("---")
 
-uploaded_file = st.file_uploader("Unggah gambar daun", type=["jpg", "jpeg", "png"])
+# --- Pilihan Input ---
+st.markdown("### Pilih metode input dari tombol di bawah 👇")
+st.markdown("---")
 
-if uploaded_file is not None and model is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="Gambar Daun yang Diunggah", use_column_width=True)
+# Buat state session
+if "input_mode" not in st.session_state:
+    st.session_state.input_mode = None
+
+# Tombol Pilihan Input
+col1, col2, col3, col4, col5 = st.columns(5)
+with col2:
+    if st.button("📷", help="Gunakan Kamera"):
+        st.session_state.input_mode = "camera"
+with col4:
+    if st.button("🖼️", help="Upload Gambar"):
+        st.session_state.input_mode = "upload"
+
+# --- Load Model ---
+model = load_model()
+image = None
+
+# --- Input Gambar ---
+if st.session_state.input_mode == "upload":
+    uploaded_file = st.file_uploader("Upload gambar daun", type=["jpg", "jpeg", "png"])
+    if uploaded_file:
+        image = Image.open(uploaded_file)
+
+elif st.session_state.input_mode == "camera":
+    camera_image = st.camera_input("Ambil gambar dari kamera")
+    if camera_image:
+        image = Image.open(camera_image)
+
+# --- Output dan Hasil ---
+if image:
+    # Resize proporsional maksimal 300x300 px
+    resized_image = image.copy()
+    resized_image.thumbnail((300, 300))
+
+    # Konversi ke base64 untuk disisipkan ke HTML agar center 100%
+    buffered = io.BytesIO()
+    resized_image.save(buffered, format="PNG")
+    img_b64 = base64.b64encode(buffered.getvalue()).decode()
+
+    # Tampilkan gambar center dengan HTML
+    st.markdown(
+        f"""
+        <div style="text-align:center;">
+            <img src="data:image/png;base64,{img_b64}" alt="Gambar Daun" style="max-height:300px; border-radius:10px;" />
+            <p style="color:gray;">Gambar Daun</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     with st.spinner("Menganalisis gambar..."):
-        # Panggil fungsi untuk prediksi
         predicted_class, confidence = preprocess_and_predict(model, image)
         manfaat = khasiat_daun.get(predicted_class, "Khasiat tidak ditemukan.")
 
     st.markdown("---")
-    # Tampilkan hasil dengan tambahan skor keyakinan
-    st.markdown(
-        f"<p style='text-align:center; font-size:24px; color:#0abf53;'>"
-        f"<strong>{predicted_class}</strong></p>",
-        unsafe_allow_html=True
-    )
-    st.markdown(
-        f"<p style='text-align:center; font-size:16px;'>"
-        f"Tingkat Keyakinan: <strong>{confidence:.2f}%</strong></p>",
-        unsafe_allow_html=True
-    )
-    st.markdown(
-        f"<p style='text-align:center; font-size:18px; color:#444; border-left: 4px solid #0abf53; padding-left: 10px;'>"
-        f"<strong>Khasiat:</strong> {manfaat}</p>",
-        unsafe_allow_html=True
-    )
-elif model is None:
-    st.error("Gagal memuat model. Mohon periksa file model dan coba lagi.")
+    st.markdown(f"<p style='text-align:center; font-size:24px; color:#0abf53;'><strong>{predicted_class}</strong></p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align:center; font-size:16px;'>Tingkat Keyakinan: <strong>{confidence:.2f}%</strong></p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align:center; font-size:18px; color:#ccc; border-left: 4px solid #0abf53; padding-left: 10px;'><strong>Khasiat:</strong> {manfaat}</p>", unsafe_allow_html=True)
 
-
-# Footer Icons (dari kode Anda)
-st.markdown("<br><br><br>", unsafe_allow_html=True)
-st.markdown("---")
-col1, col2, col3, col4, col5 = st.columns(5)
-with col2:
-    st.markdown('<div style="text-align:center;"><img src="https://img.icons8.com/ios/50/00e676/camera--v1.png" width="40"/></div>', unsafe_allow_html=True)
-with col4:
-    st.markdown('<div style="text-align:center;"><img src="https://img.icons8.com/ios/50/00e676/image.png" width="40"/></div>', unsafe_allow_html=True)
+else:
+    st.info("Pilih metode input dari tombol di bawah (kamera atau upload gambar).")
