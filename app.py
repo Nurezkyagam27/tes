@@ -135,7 +135,7 @@ elif st.session_state.input_mode == "camera":
 if image:
     # Resize proporsional maksimal 300x300 px
     resized_image = image.copy()
-    resized_image.thumbnail((300, 300))
+    resized_image.thumbnail((224, 224))
 
     # Konversi ke base64 untuk disisipkan ke HTML agar center 100%
     buffered = io.BytesIO()
